@@ -1,5 +1,5 @@
 'use strict';
-const CACHE_NAME='agua-lirios-cache-v0.8.7';
+const CACHE_NAME='agua-lirios-cache-v0.9.5';
 const ASSETS=['./','./index.html','./styles.css','./app.js','./manifest.json','./sw.js'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS))); self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.map(k=>k!==CACHE_NAME?caches.delete(k):null)))); self.clients.claim();});

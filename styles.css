@@ -105,3 +105,13 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-appl
 .limits-table td:first-child{border-radius:14px 0 0 14px}
 .limits-table td:last-child{border-radius:0 14px 14px 0}
 .limite-input{min-width:120px}
+
+/* Carrinho de Vendas */
+#cart-items{margin-top:12px}
+#cart-total{font-size:1.1rem;font-weight:900;padding:12px;background:#e8f5e9;border-radius:14px;text-align:center}
+
+/* Relatório de Caixa */
+.subtotais{display:grid;gap:8px;margin-top:12px}
+.subtotais .item{padding:12px;border-radius:14px}
+.subtotais .item[style*="background:#e8f5e9"]{background:#e8f5e9!important;font-weight:900}
+.subtotais .item[style*="background:#f5f5f5"]{background:#f5f5f5!important}
