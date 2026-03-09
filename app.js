@@ -1,15 +1,13 @@
 
 'use strict';
 
-const APP_VERSION = 'v0.9.5';
+const APP_VERSION = 'v0.9.0';
 const DB_NAME = 'agua_lirios_db_v055_v080_v081_v084_v085_v086_v087_v090';
 const DB_VERSION = 8;
 
 const APP = {
   db: null,
-  lastProductionShareText: '',
-  cart: [],
-  cartLock: false
+  lastProductionShareText: ''
 };
 
 // Banco limpo por padrão (sem seed)
@@ -22,7 +20,6 @@ let SALE_SAVE_LOCK = false;
 let COST_SAVE_LOCK = false;
 let PURCHASE_SAVE_LOCK = false;
 let RECEIVE_SAVE_LOCK = false;
-let PAYROLL_SAVE_LOCK = false;
 
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
@@ -164,7 +161,6 @@ async function openDB(){
       ensure('recebimentos');
       ensure('producoes');
       ensure('vendas');
-      ensure('pagamentos');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -403,7 +399,7 @@ function produtosSetModo(modo){
       btn.textContent = 'ATUALIZAR PRODUTO';
       btn.classList.add('btn--update');
     }else{
-      btn.textContent = 'SALVAR NOVO PRODUTO';
+      btn.textContent = 'Salvar Produto';
       btn.classList.remove('btn--update');
     }
   }
@@ -411,32 +407,62 @@ function produtosSetModo(modo){
 
 function produtosResetForm(){
   EDITING_PRODUCT_ID = null;
-  const form = document.getElementById('form-produtos');
-  if(form) form.reset();
-  document.getElementById('produto-id').value = '';
-  ftClear();
+  const idEl = document.getElementById('produto-id');
+  const nomeEl = document.getElementById('produto-nome');
+  const unEl = document.getElementById('produto-unidade');
+  const pvEl = document.getElementById('produto-precoVenda');
+  if(idEl) idEl.value = '';
+  if(nomeEl) nomeEl.value = '';
+  if(unEl) unEl.value = '';
+  if(pvEl) pvEl.value = '';
+  FT_STATE = [];
+  ftRender();
   produtosSetModo('Novo');
 }
 
 async function produtosLoadToForm(produtoId){
   const p = await getById('produtos', Number(produtoId));
   if(!p) return toast('Produto não encontrado.');
+
+  const idEl = document.getElementById('produto-id');
+  const nomeEl = document.getElementById('produto-nome');
+  const unEl = document.getElementById('produto-unidade');
+  const pvEl = document.getElementById('produto-precoVenda');
+  if(!idEl || !nomeEl || !unEl || !pvEl){
+    console.error('IDs do formulário de produto não encontrados.');
+    toast('Campos do formulário não encontrados.');
+    return;
+  }
+
   EDITING_PRODUCT_ID = Number(p.id);
-  document.getElementById('produto-id').value = String(p.id);
-  document.getElementById('produto-nome').value = p.nome || '';
-  document.getElementById('produto-unidade').value = p.unidade || '';
-  document.getElementById('produto-precoVenda').value = p.precoVenda ? moneyBR(p.precoVenda) : '';
-  FT_STATE = Array.isArray(p.fichaTecnica) ? p.fichaTecnica : [];
+  idEl.value = String(p.id);
+  nomeEl.value = p.nome || '';
+  unEl.value = p.unidade || '';
+  pvEl.value = moneyBR(p.precoVenda || 0);
+
+  await loadInsumosCache();
+  const ft = Array.isArray(p.fichaTecnica) ? p.fichaTecnica : [];
+  FT_STATE = ft.map(line => {
+    const name = String(line.insumoNome || '').trim();
+    const guess = INSUMOS_CACHE.find(i => normalizeName(i.nome) === normalizeName(name));
+    return {
+      insumoId: line.insumoId || guess?.id || '',
+      insumoNome: name,
+      qtd: Number(line.qtd) || 0,
+      unidade: line.unidade || guess?.unidade || ''
+    };
+  });
   ftRender();
-  produtosSetModo(`Editando: ${p.nome}`);
+  produtosSetModo(`Editando #${p.id}`);
 }
 
 async function produtosDelete(produtoId){
-  if(!confirm('Tem certeza que deseja excluir este produto?')) return;
-  await deleteById('produtos', produtoId);
+  if(!confirm('Excluir este produto?')) return;
+  await deleteById('produtos', Number(produtoId));
+  toast('Produto excluído.');
   if(EDITING_PRODUCT_ID === Number(produtoId)) produtosResetForm();
   await handleList('produtos');
-  toast('Produto excluído.');
+  await refreshProdutosSelect();
 }
 
 /* ---------- Insumos ---------- */
@@ -444,23 +470,34 @@ function insumosResetForm(){
   EDITING_INSUMO_ID = null;
   const form = document.getElementById('form-insumos');
   if(form) form.reset();
+  const btn = document.querySelector('#form-insumos button[type="submit"]');
+  if(btn){
+    btn.textContent = 'Salvar';
+    btn.classList.remove('btn--update');
+  }
 }
 
 async function insumosLoadToForm(insumoId){
-  const i = await getById('insumos', Number(insumoId));
-  if(!i) return toast('Insumo não encontrado.');
-  EDITING_INSUMO_ID = Number(i.id);
+  const ins = await getById('insumos', Number(insumoId));
+  if(!ins) return toast('Insumo não encontrado.');
+  EDITING_INSUMO_ID = Number(ins.id);
   const form = document.getElementById('form-insumos');
-  if(!form) return;
-  form.querySelector('[name="nome"]').value = i.nome || '';
-  form.querySelector('[name="unidade"]').value = i.unidade || '';
-  form.querySelector('[name="saldo"]').value = i.saldo ? numBR(i.saldo) : '';
-  form.querySelector('[name="custoUnit"]').value = i.custoUnit ? moneyBR(i.custoUnit) : '';
+  if(!form) return toast('Formulário de insumos não encontrado.');
+  form.querySelector('[name="nome"]').value = ins.nome || '';
+  form.querySelector('[name="unidade"]').value = ins.unidade || '';
+  form.querySelector('[name="saldo"]').value = numBR(ins.saldo || 0);
+  form.querySelector('[name="custoUnit"]').value = moneyBR(ins.custoUnit || 0);
+  const btn = form.querySelector('button[type="submit"]');
+  if(btn){
+    btn.textContent = 'Atualizar Insumo';
+    btn.classList.add('btn--update');
+  }
 }
 
 async function insumosDelete(insumoId){
-  if(!confirm('Tem certeza que deseja excluir este insumo?')) return;
-  await deleteById('insumos', insumoId);
+  if(!confirm('Excluir este insumo?')) return;
+  await deleteById('insumos', Number(insumoId));
+  toast('Insumo excluído.');
   if(EDITING_INSUMO_ID === Number(insumoId)) insumosResetForm();
   await handleList('insumos');
   await refreshComprasUI();
@@ -588,852 +625,11 @@ async function refreshComprasUI(){
 
 async function refreshCustosUI(){
   await fillDespesaGrupos();
-  await fillDespesaSubcustos('');
-  await listarCustosItens();
+  await fillDespesaSubcustos(document.getElementById('despesa-grupo')?.value || '');
   await listarDespesas();
+  await listarCustosItens();
 }
 
-/* ---------- Estoque ---------- */
-async function refreshEstoqueUI(){
-  const box = document.getElementById('list-estoque');
-  if(!box) return;
-
-  const insumos = await listAll('insumos');
-  const produtos = await listAll('produtos');
-
-  insumos.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
-  produtos.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
-
-  const renderSaldo = (saldo) => {
-    const cls = Number(saldo) <= 0 ? 'saldo-alerta' : '';
-    return `<span class="${cls}">${escapeHtml(numBR(saldo || 0))}</span>`;
-  };
-
-  const insumosHtml = insumos.length ? insumos.map(i => `
-    <div class="item">
-      <div>
-        <div class="item__title">${escapeHtml(i.nome || '')}</div>
-        <div class="item__meta">Unid: ${escapeHtml(i.unidade || '')} • Custo Médio (Unit): R$ ${escapeHtml(moneyBR(i.custoUnit || 0))}</div>
-      </div>
-      <div class="item__right">Saldo: ${renderSaldo(i.saldo)}</div>
-    </div>
-  `).join('') : '<div class="muted">Nenhum insumo cadastrado.</div>';
-
-  const produtosHtml = produtos.length ? produtos.map(p => `
-    <div class="item">
-      <div>
-        <div class="item__title">${escapeHtml(p.nome || '')}</div>
-        <div class="item__meta">Unid: ${escapeHtml(p.unidade || '')} • Preço Venda: R$ ${escapeHtml(moneyBR(p.precoVenda || 0))}</div>
-      </div>
-      <div class="item__right">Saldo: ${renderSaldo(p.saldo)}</div>
-    </div>
-  `).join('') : '<div class="muted">Nenhum produto cadastrado.</div>';
-
-  box.innerHTML = `
-    <div class="estoque-bloco-title">Insumos</div>
-    ${insumosHtml}
-    <div class="estoque-bloco-title">Produtos Acabados</div>
-    ${produtosHtml}
-  `;
-}
-
-/* ---------- CARRINHO DE VENDAS (v0.9.5) ---------- */
-async function refreshCartUI(){
-  const cartBox = document.getElementById('cart-items');
-  if(!cartBox) return;
-  
-  if(APP.cart.length === 0){
-    cartBox.innerHTML = '<div class="muted">Carrinho vazio. Adicione itens para começar.</div>';
-    return;
-  }
-  
-  let totalGeral = 0;
-  cartBox.innerHTML = APP.cart.map((item, idx) => {
-    const total = item.qtd * item.precoUnit;
-    totalGeral += total;
-    return `
-      <div class="item">
-        <div>
-          <div class="item__title">${escapeHtml(item.produtoNome || '')} • ${escapeHtml(numBR(item.qtd))} ${escapeHtml(item.unidade || '')}</div>
-          <div class="item__meta">Preço Unit: R$ ${escapeHtml(moneyBR(item.precoUnit))} • Total: R$ ${escapeHtml(moneyBR(total))}</div>
-        </div>
-        <div class="item__right">
-          <button class="btn btn--ghost js-cart-remove" type="button" data-idx="${idx}">Remover</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-  
-  const totalBox = document.getElementById('cart-total');
-  if(totalBox){
-    totalBox.innerHTML = `<strong>Total do Carrinho: R$ ${escapeHtml(moneyBR(totalGeral))}</strong>`;
-  }
-}
-
-async function addToCart(){
-  const clienteId = Number($('#venda-cliente')?.value || 0);
-  const produtoId = Number($('#venda-produto')?.value || 0);
-  const qtd = parseDecimalInput($('#venda-qtd')?.value || '');
-  const precoUnit = parseDecimalInput($('#venda-preco')?.value || '');
-  
-  if(!clienteId) return toast('Selecione um cliente.');
-  if(!produtoId) return toast('Selecione um produto.');
-  if(!Number.isFinite(qtd) || qtd <= 0) return toast('Informe uma quantidade válida.');
-  if(!Number.isFinite(precoUnit) || precoUnit < 0) return toast('Informe um preço unitário válido.');
-  
-  const produto = await getById('produtos', produtoId);
-  if(!produto) return toast('Produto não encontrado.');
-  
-  const saldoAtual = Number(produto.saldo || 0);
-  if(saldoAtual + 1e-9 < qtd){
-    return toast(`Saldo insuficiente. Disponível: ${numBR(saldoAtual)} ${produto.unidade || 'un'}`);
-  }
-  
-  APP.cart.push({
-    produtoId: Number(produtoId),
-    produtoNome: produto.nome,
-    qtd: Number(qtd.toFixed(6)),
-    precoUnit: Number(precoUnit.toFixed(6)),
-    unidade: produto.unidade || 'un'
-  });
-  
-  $('#venda-qtd').value = '';
-  $('#venda-preco').value = '';
-  updateVendaPreview();
-  await refreshCartUI();
-  toast('Item adicionado ao carrinho.');
-}
-
-async function removeFromCart(idx){
-  if(idx < 0 || idx >= APP.cart.length) return;
-  APP.cart.splice(idx, 1);
-  await refreshCartUI();
-  toast('Item removido do carrinho.');
-}
-
-async function finalizarVendaComCarrinho(){
-  if(APP.cartLock) return;
-  
-  if(APP.cart.length === 0) return toast('Carrinho vazio. Adicione itens antes de finalizar.');
-  
-  const clienteId = Number($('#venda-cliente')?.value || 0);
-  if(!clienteId) return toast('Selecione um cliente.');
-  
-  const valorDinheiro = parseDecimalInput($('#venda-dinheiro')?.value || '0');
-  const valorPix = parseDecimalInput($('#venda-pix')?.value || '0');
-  const valorVale = parseDecimalInput($('#venda-vale')?.value || '0');
-  
-  if(!Number.isFinite(valorDinheiro) || !Number.isFinite(valorPix) || !Number.isFinite(valorVale)){
-    return toast('Informe valores de pagamento válidos.');
-  }
-  
-  try {
-    APP.cartLock = true;
-    
-    const cliente = await getById('clientes', clienteId);
-    if(!cliente) return toast('Cliente não encontrado.');
-    
-    let totalVenda = 0;
-    for(const item of APP.cart){
-      totalVenda += item.qtd * item.precoUnit;
-    }
-    totalVenda = Number(totalVenda.toFixed(6));
-    
-    const somaPagamentos = Number((valorDinheiro + valorPix + valorVale).toFixed(6));
-    if(Math.abs(totalVenda - somaPagamentos) > 0.009){
-      return toast(`Os pagamentos não fecham a venda. Total: R$ ${moneyBR(totalVenda)} | Informado: R$ ${moneyBR(somaPagamentos)}`);
-    }
-    
-    const limite = Number(cliente.limiteCredito || 0);
-    const saldoDevedor = Number(cliente.saldoDevedor || 0);
-    if(valorVale > 0){
-      const novoSaldoDevedor = saldoDevedor + valorVale;
-      if(limite > 0 && novoSaldoDevedor - limite > 1e-9){
-        return toast(`Limite insuficiente! Disponível: R$ ${moneyBR(Math.max(0, limite - saldoDevedor))}`);
-      }
-      cliente.saldoDevedor = Number(novoSaldoDevedor.toFixed(6));
-      await putRecord('clientes', cliente);
-    }
-    
-    // Baixa de estoque para cada item do carrinho
-    for(const item of APP.cart){
-      const prod = await getById('produtos', item.produtoId);
-      if(prod){
-        prod.saldo = Number((Number(prod.saldo || 0) - item.qtd).toFixed(6));
-        await putRecord('produtos', prod);
-      }
-    }
-    
-    // Registra cada item como uma venda separada (para histórico)
-    for(const item of APP.cart){
-      const formaResumo = (valorVale > 0 && (valorDinheiro > 0 || valorPix > 0)) ? 'Misto' : (valorVale > 0 ? 'Vale' : (valorPix > 0 && valorDinheiro > 0 ? 'Misto' : (valorPix > 0 ? 'Pix' : 'Dinheiro')));
-      
-      await addRecord('vendas', {
-        data: Date.now(),
-        clienteId: cliente.id,
-        clienteNome: cliente.nome,
-        produtoId: item.produtoId,
-        produtoNome: item.produtoNome,
-        unidade: item.unidade,
-        qtd: item.qtd,
-        precoUnit: item.precoUnit,
-        totalVenda: Number((item.qtd * item.precoUnit).toFixed(6)),
-        valorDinheiro: Number((valorDinheiro * (item.qtd * item.precoUnit / totalVenda)).toFixed(6)),
-        valorPix: Number((valorPix * (item.qtd * item.precoUnit / totalVenda)).toFixed(6)),
-        valorVale: Number((valorVale * (item.qtd * item.precoUnit / totalVenda)).toFixed(6)),
-        formaPagamento: formaResumo
-      });
-    }
-    
-    // Registra lançamento de entrada no caixa
-    await addRecord('pagamentos', {
-      data: Date.now(),
-      tipo: 'entrada',
-      descricao: `Venda para ${cliente.nome} (${APP.cart.length} itens)`,
-      valorDinheiro: Number(valorDinheiro.toFixed(6)),
-      valorPix: Number(valorPix.toFixed(6)),
-      valorVale: Number(valorVale.toFixed(6)),
-      formaPagamento: 'Misto'
-    });
-    
-    APP.cart = [];
-    $('#venda-cliente').value = '';
-    $('#venda-dinheiro').value = '';
-    $('#venda-pix').value = '';
-    $('#venda-vale').value = '';
-    updateVendaPreview();
-    await refreshCartUI();
-    await refreshVendasUI();
-    await refreshFinanceiroUI();
-    await refreshEstoqueUI();
-    await handleList('clientes');
-    
-    toast('Venda finalizada com sucesso! Carrinho limpo.');
-  } finally {
-    APP.cartLock = false;
-  }
-}
-
-/* ---------- FOLHA DE PAGAMENTO (v0.9.5) ---------- */
-async function fillFuncionariosSelect(){
-  const sel = document.getElementById('pagamento-funcionario');
-  if(!sel) return;
-  const funcionarios = await listAll('funcionarios');
-  funcionarios.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
-  sel.innerHTML = '<option value="">Selecione...</option>' + funcionarios.map(f => `<option value="${f.id}">${escapeHtml(f.nome || '')}</option>`).join('');
-}
-
-async function registrarPagamentoFuncionario(){
-  if(PAYROLL_SAVE_LOCK) return;
-  
-  const funcionarioId = Number($('#pagamento-funcionario')?.value || 0);
-  const valor = parseDecimalInput($('#pagamento-valor')?.value || '');
-  const descricao = String($('#pagamento-descricao')?.value || '').trim();
-  const formaPagamento = String($('#pagamento-forma')?.value || '').trim();
-  
-  if(!funcionarioId) return toast('Selecione um funcionário.');
-  if(!Number.isFinite(valor) || valor <= 0) return toast('Informe um valor válido.');
-  if(!formaPagamento) return toast('Selecione a forma de pagamento.');
-  
-  try {
-    PAYROLL_SAVE_LOCK = true;
-    
-    const funcionario = await getById('funcionarios', funcionarioId);
-    if(!funcionario) return toast('Funcionário não encontrado.');
-    
-    // Registra pagamento
-    await addRecord('pagamentos', {
-      data: Date.now(),
-      tipo: 'saida',
-      descricao: `Pagamento ${descricao || 'Salário'} - ${funcionario.nome}`,
-      valor: Number(valor.toFixed(6)),
-      formaPagamento,
-      funcionarioId
-    });
-    
-    $('#pagamento-funcionario').value = '';
-    $('#pagamento-valor').value = '';
-    $('#pagamento-descricao').value = '';
-    $('#pagamento-forma').value = '';
-    
-    await refreshFinanceiroUI();
-    toast('Pagamento registrado com sucesso.');
-  } finally {
-    PAYROLL_SAVE_LOCK = false;
-  }
-}
-
-/* ---------- CAIXA DIÁRIO (v0.9.5) ---------- */
-async function gerarRelatorioCaixa(){
-  const hoje = new Date();
-  const dataInicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 0, 0, 0).getTime();
-  const dataFim = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59).getTime();
-  
-  const vendas = await listAll('vendas');
-  const despesas = await listAll('despesas');
-  const recebimentos = await listAll('recebimentos');
-  const pagamentos = await listAll('pagamentos');
-  
-  const vendasHoje = vendas.filter(v => (v.data || 0) >= dataInicio && (v.data || 0) <= dataFim);
-  const despesasHoje = despesas.filter(d => (d.data || 0) >= dataInicio && (d.data || 0) <= dataFim);
-  const recebimentosHoje = recebimentos.filter(r => (r.data || 0) >= dataInicio && (r.data || 0) <= dataFim);
-  const pagamentosHoje = pagamentos.filter(p => (p.data || 0) >= dataInicio && (p.data || 0) <= dataFim);
-  
-  let entradaDinheiro = 0, entradaPix = 0, entradaVale = 0;
-  let saidaDinheiro = 0, saidaPix = 0, saidaVale = 0;
-  
-  // Entradas de vendas
-  for(const v of vendasHoje){
-    entradaDinheiro += Number(v.valorDinheiro || 0);
-    entradaPix += Number(v.valorPix || 0);
-    entradaVale += Number(v.valorVale || 0);
-  }
-  
-  // Entradas de recebimentos
-  for(const r of recebimentosHoje){
-    if(r.formaPagamento === 'Dinheiro') entradaDinheiro += Number(r.valor || 0);
-    else if(r.formaPagamento === 'Pix') entradaPix += Number(r.valor || 0);
-  }
-  
-  // Entradas de pagamentos (tipo entrada)
-  for(const p of pagamentosHoje){
-    if(p.tipo === 'entrada'){
-      saidaDinheiro -= Number(p.valorDinheiro || 0);
-      saidaPix -= Number(p.valorPix || 0);
-      saidaVale -= Number(p.valorVale || 0);
-    }
-  }
-  
-  // Saídas de despesas
-  for(const d of despesasHoje){
-    if(d.formaPagamento === 'Dinheiro') saidaDinheiro += Number(d.valor || 0);
-    else if(d.formaPagamento === 'Pix') saidaPix += Number(d.valor || 0);
-    else if(d.formaPagamento === 'Vale') saidaVale += Number(d.valor || 0);
-  }
-  
-  // Saídas de pagamentos (tipo saida)
-  for(const p of pagamentosHoje){
-    if(p.tipo === 'saida'){
-      if(p.formaPagamento === 'Dinheiro') saidaDinheiro += Number(p.valor || 0);
-      else if(p.formaPagamento === 'Pix') saidaPix += Number(p.valor || 0);
-      else if(p.formaPagamento === 'Vale') saidaVale += Number(p.valor || 0);
-    }
-  }
-  
-  const saldoDinheiro = entradaDinheiro - saidaDinheiro;
-  const saldoPix = entradaPix - saidaPix;
-  const saldoVale = entradaVale - saidaVale;
-  const saldoTotal = saldoDinheiro + saldoPix + saldoVale;
-  
-  const box = document.getElementById('relatorio-caixa');
-  if(box){
-    box.innerHTML = `
-      <div class="panel">
-        <h2 class="h2">Relatório de Fechamento - ${hoje.toLocaleDateString('pt-BR')}</h2>
-        <div class="subtotais">
-          <div class="item">
-            <div><div class="item__title">ENTRADAS</div></div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Dinheiro</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(entradaDinheiro))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Pix</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(entradaPix))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Vale</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(entradaVale))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title"><strong>Total Entradas</strong></div></div>
-            <div class="item__right"><strong>R$ ${escapeHtml(moneyBR(entradaDinheiro + entradaPix + entradaVale))}</strong></div>
-          </div>
-          
-          <div class="item" style="margin-top:12px">
-            <div><div class="item__title">SAÍDAS</div></div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Dinheiro</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saidaDinheiro))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Pix</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saidaPix))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title">Vale</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saidaVale))}</div>
-          </div>
-          <div class="item">
-            <div><div class="item__title"><strong>Total Saídas</strong></div></div>
-            <div class="item__right"><strong>R$ ${escapeHtml(moneyBR(saidaDinheiro + saidaPix + saidaVale))}</strong></div>
-          </div>
-          
-          <div class="item" style="margin-top:12px; background:#e8f5e9">
-            <div><div class="item__title"><strong>SALDO FINAL DO DIA</strong></div></div>
-            <div class="item__right"><strong>R$ ${escapeHtml(moneyBR(saldoTotal))}</strong></div>
-          </div>
-          <div class="item" style="background:#f5f5f5">
-            <div><div class="item__title">Dinheiro</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saldoDinheiro))}</div>
-          </div>
-          <div class="item" style="background:#f5f5f5">
-            <div><div class="item__title">Pix</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saldoPix))}</div>
-          </div>
-          <div class="item" style="background:#f5f5f5">
-            <div><div class="item__title">Vale</div></div>
-            <div class="item__right">R$ ${escapeHtml(moneyBR(saldoVale))}</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-}
-
-/* ---------- Event delegation ---------- */
-document.addEventListener('click', async (e) => {
-  const t = e.target;
-  if(!(t instanceof HTMLElement)) return;
-
-  const prodEdit = t.closest('.js-prod-edit');
-  if(prodEdit){
-    e.preventDefault();
-    const id = Number(prodEdit.getAttribute('data-id') || 0);
-    if(!id) return;
-
-    openSection('cadastros');
-    setActiveTab('produtos');
-    await produtosLoadToForm(id);
-    window.scrollTo({top: 0, behavior: 'smooth'});
-    const form = document.getElementById('form-produtos');
-    if(form) form.scrollIntoView({behavior:'smooth', block:'start'});
-    toast('Produto carregado para edição.');
-    return;
-  }
-
-  const prodDel = t.closest('.js-prod-del');
-  if(prodDel){
-    e.preventDefault();
-    const id = Number(prodDel.getAttribute('data-id') || 0);
-    if(!id) return;
-    await produtosDelete(id);
-    return;
-  }
-
-  const insEdit = t.closest('.js-ins-edit');
-  if(insEdit){
-    e.preventDefault();
-    const id = Number(insEdit.getAttribute('data-id') || 0);
-    if(!id) return;
-
-    openSection('cadastros');
-    setActiveTab('insumos');
-    await insumosLoadToForm(id);
-    window.scrollTo({top:0, behavior:'smooth'});
-    const form = document.getElementById('form-insumos');
-    if(form) form.scrollIntoView({behavior:'smooth', block:'start'});
-    toast('Insumo carregado para edição.');
-    return;
-  }
-
-  const insDel = t.closest('.js-ins-del');
-  if(insDel){
-    e.preventDefault();
-    const id = Number(insDel.getAttribute('data-id') || 0);
-    if(!id) return;
-    await insumosDelete(id);
-    return;
-  }
-
-  const cliEdit = t.closest('.js-cli-edit');
-  if(cliEdit){
-    e.preventDefault();
-    const id = Number(cliEdit.getAttribute('data-id') || 0);
-    if(!id) return;
-    openSection('cadastros');
-    setActiveTab('clientes');
-    await clientesLoadToForm(id);
-    window.scrollTo({top:0, behavior:'smooth'});
-    document.getElementById('form-clientes')?.scrollIntoView({behavior:'smooth', block:'start'});
-    toast('Cliente carregado para edição.');
-    return;
-  }
-
-  const saveLimite = t.closest('.js-save-limite');
-  if(saveLimite){
-    e.preventDefault();
-    const id = Number(saveLimite.getAttribute('data-id') || 0);
-    if(!id) return;
-    const input = document.querySelector(`.js-limite-input[data-id="${id}"]`);
-    const valor = Number(input?.value || 0);
-    if(!Number.isFinite(valor) || valor < 0) return toast('Informe um limite válido.');
-    const cliente = await getById('clientes', id);
-    if(!cliente) return toast('Cliente não encontrado.');
-    cliente.limiteCredito = Number(valor.toFixed(6));
-    if(!Number.isFinite(Number(cliente.saldoDevedor))) cliente.saldoDevedor = 0;
-    await putRecord('clientes', cliente);
-    await refreshLimitesUI();
-    await handleList('clientes');
-    await refreshVendasUI();
-    toast('Limite salvo com sucesso.');
-    return;
-  }
-
-  const centroEdit = t.closest('.js-centro-edit');
-  if(centroEdit){
-    e.preventDefault();
-    const id = Number(centroEdit.getAttribute('data-id') || 0);
-    if(!id) return;
-    const item = await getById('centrosCusto', id);
-    if(!item) return toast('Subcusto não encontrado.');
-    const novoSub = prompt('Editar nome do subcusto:', item.subcusto || '');
-    if(novoSub === null) return;
-    const novaObs = prompt('Editar observação:', item.observacao || '');
-    if(novaObs === null) return;
-    item.subcusto = String(novoSub || '').trim() || item.subcusto;
-    item.observacao = String(novaObs || '').trim();
-    await putRecord('centrosCusto', item);
-    await handleList('centrosCusto');
-    await refreshLimitesUI();
-    await refreshCustosUI();
-    await refreshFinanceiroUI();
-    toast('Subcusto atualizado.');
-    return;
-  }
-
-  const ftDel = t.closest('[data-action="remove-ft-item"]');
-  if(ftDel){
-    e.preventDefault();
-    const ix = Number(ftDel.getAttribute('data-ix') || -1);
-    if(ix >= 0 && ix < FT_STATE.length){
-      FT_STATE.splice(ix, 1);
-      ftRender();
-    }
-    return;
-  }
-
-  const cartRemove = t.closest('.js-cart-remove');
-  if(cartRemove){
-    e.preventDefault();
-    const idx = Number(cartRemove.getAttribute('data-idx') || -1);
-    await removeFromCart(idx);
-    return;
-  }
-});
-
-function bindNav(){
-  $$('[data-go]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.getAttribute('data-go');
-      if(key) openSection(key);
-    });
-  });
-}
-
-function bindForms(){
-  $('#btn-testdb')?.addEventListener('click', async () => {
-    try {
-      const test = await listAll('clientes');
-      toast(`DB OK: ${test.length} clientes.`);
-    } catch(e) {
-      toast('Erro ao acessar DB.');
-    }
-  });
-
-  $('#btn-resetui')?.addEventListener('click', () => {
-    const el = $('#toast');
-    if(el) el.classList.remove('is-show');
-  });
-
-  $('#btn-ft-add')?.addEventListener('click', () => ftAddRow().catch(console.error));
-  $('#btn-produtos-novo')?.addEventListener('click', () => produtosResetForm());
-
-  $('#form-clientes')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const nome = String($('#form-clientes [name="nome"]')?.value || '').trim();
-    const telefone = String($('#form-clientes [name="telefone"]')?.value || '').trim();
-    const cidade = String($('#form-clientes [name="cidade"]')?.value || '').trim();
-    const limiteCredito = parseDecimalInput($('#form-clientes [name="limiteCredito"]')?.value || '0');
-
-    if(!nome) return toast('Informe o nome do cliente.');
-
-    const data = {
-      nome,
-      telefone,
-      cidade,
-      limiteCredito: Number.isFinite(limiteCredito) ? limiteCredito : 0,
-      saldoDevedor: 0
-    };
-
-    if(EDITING_CLIENTE_ID){
-      const current = await getById('clientes', EDITING_CLIENTE_ID);
-      if(!current) return toast('Cliente não encontrado para atualizar.');
-      data.saldoDevedor = Number(current.saldoDevedor || 0);
-      await putRecord('clientes', {...current, ...data, id: Number(EDITING_CLIENTE_ID)});
-      toast('Cliente atualizado.');
-    } else {
-      data.createdAt = Date.now();
-      await addRecord('clientes', data);
-      toast('Cliente salvo.');
-    }
-
-    clientesResetForm();
-    await handleList('clientes');
-    await refreshVendasUI();
-    await refreshFinanceiroUI();
-  });
-
-  $('#form-fornecedores')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const data = {
-      nome: String($('#form-fornecedores [name="nome"]')?.value || '').trim(),
-      contato: String($('#form-fornecedores [name="contato"]')?.value || '').trim()
-    };
-    if(!data.nome) return toast('Informe o nome do fornecedor.');
-    await addRecord('fornecedores', data);
-    e.target.reset();
-    await handleList('fornecedores');
-    toast('Fornecedor salvo.');
-  });
-
-  $('#form-funcionarios')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const data = {
-      nome: String($('#form-funcionarios [name="nome"]')?.value || '').trim(),
-      funcao: String($('#form-funcionarios [name="funcao"]')?.value || '').trim()
-    };
-    if(!data.nome) return toast('Informe o nome do funcionário.');
-    await addRecord('funcionarios', data);
-    e.target.reset();
-    await handleList('funcionarios');
-    toast('Funcionário salvo.');
-  });
-
-  $('#form-insumos')?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const saldo = parseDecimalInput(fd.get('saldo') || '0');
-    const custo = parseDecimalInput(fd.get('custoUnit') || '0');
-    const data = {
-      nome: String(fd.get('nome')||'').trim(),
-      unidade: String(fd.get('unidade')||'').trim(),
-      saldo: Number.isFinite(saldo) ? saldo : 0,
-      custoUnit: Number.isFinite(custo) ? custo : 0
-    };
-    if(!data.nome || !data.unidade) return toast('Informe nome e unidade do insumo.');
-
-    if(EDITING_INSUMO_ID){
-      const current = await getById('insumos', EDITING_INSUMO_ID);
-      if(!current) return toast('Insumo não encontrado para atualizar.');
-      await putRecord('insumos', {...current, ...data, id: Number(EDITING_INSUMO_ID)});
-      toast('Insumo atualizado.');
-    }else{
-      await addRecord('insumos', {...data, createdAt: Date.now()});
-      toast('Insumo salvo.');
-    }
-
-    insumosResetForm();
-    await handleList('insumos');
-    await refreshComprasUI();
-    await refreshEstoqueUI();
-  });
-
-  $('#form-produtos')?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const nome = String($('#produto-nome')?.value || '').trim();
-    const unidade = String($('#produto-unidade')?.value || '').trim();
-    const precoVenda = parseDecimalInput($('#produto-precoVenda')?.value || '0');
-    if(!nome || !unidade) return toast('Informe nome e unidade do produto.');
-
-    await loadInsumosCache();
-    const ficha = ftSyncFromUI();
-
-    const hiddenId = String(document.getElementById('produto-id')?.value || '').trim();
-    const id = EDITING_PRODUCT_ID ? String(EDITING_PRODUCT_ID) : hiddenId;
-
-    if(id){
-      const current = await getById('produtos', Number(id));
-      if(!current) return toast('Produto não encontrado para atualizar.');
-      await putRecord('produtos', {
-        ...current,
-        id: Number(id),
-        nome,
-        unidade,
-        precoVenda: Number.isFinite(precoVenda) ? precoVenda : 0,
-        fichaTecnica: ficha
-      });
-      toast('Produto atualizado.');
-    }else{
-      await addRecord('produtos', {
-        nome,
-        unidade,
-        precoVenda: Number.isFinite(precoVenda) ? precoVenda : 0,
-        saldo: 0,
-        fichaTecnica: ficha,
-        createdAt: Date.now()
-      });
-      toast('Produto salvo.');
-    }
-
-    produtosResetForm();
-    await handleList('produtos');
-    await refreshProdutosSelect();
-  });
-
-  $('#form-producao')?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    await registrarProducao();
-  });
-
-  
-  
-  // Bindings únicos para evitar duplicidade
-  const bindOnce = (selector, eventName, handler, key='bound') => {
-    const el = $(selector);
-    if(!el || el.dataset[key]) return;
-    el.addEventListener(eventName, handler);
-    el.dataset[key] = '1';
-  };
-
-  bindOnce('#btn-centros-listar', 'click', ()=>handleList('centrosCusto').catch(console.error), 'clickBound');
-  bindOnce('#btn-listar-compras', 'click', ()=>listarCompras().catch(console.error), 'clickBound');
-  bindOnce('#btn-listar-despesas', 'click', ()=>listarDespesas().catch(console.error), 'clickBound');
-  bindOnce('#financeiro-centro-filtro', 'change', ()=>refreshFinanceiroUI().catch(console.error), 'changeBound');
-  
-  bindOnce('#btn-listar-vendas', 'click', ()=>listarVendas().catch(console.error), 'clickBound');
-  bindOnce('#btn-financeiro-atualizar', 'click', ()=>refreshFinanceiroUI().catch(console.error), 'clickBound');
-  bindOnce('#venda-cliente', 'change', ()=>updateVendaClienteInfo().catch(console.error), 'changeBound');
-  bindOnce('#receb-cliente', 'change', ()=>updateRecebClienteInfo().catch(console.error), 'changeBound');
-  bindOnce('#despesa-grupo', 'change', ()=>fillDespesaSubcustos($('#despesa-grupo')?.value || '').catch(console.error), 'changeBound');
-
-  ['#venda-qtd','#venda-preco','#venda-dinheiro','#venda-pix','#venda-vale'].forEach(sel => {
-    bindOnce(sel, 'input', ()=>updateVendaPreview(), 'inputBound');
-  });
-
-  bindOnce('#btn-adicionar-carrinho', 'click', async (e)=>{
-    e.preventDefault();
-    await addToCart();
-  }, 'clickBound');
-
-  bindOnce('#btn-finalizar-venda', 'submit', async (e)=>{
-    e.preventDefault();
-    await finalizarVendaComCarrinho();
-  }, 'submitBound');
-
-  bindOnce('#form-vendas', 'submit', async (e)=>{
-    e.preventDefault();
-    if(SALE_SAVE_LOCK) return;
-    await finalizarVendaComCarrinho();
-  }, 'submitBound');
-
-  bindOnce('#form-recebimento', 'submit', async (e)=>{
-    e.preventDefault();
-    if(RECEIVE_SAVE_LOCK) return;
-    const clienteId = Number($('#receb-cliente')?.value || 0);
-    const valor = parseDecimalInput($('#receb-valor')?.value || '');
-    const formaPagamento = String($('#receb-forma')?.value || '');
-    if(!clienteId) return toast('Selecione um cliente.');
-    if(!Number.isFinite(valor) || valor <= 0) return toast('Informe um valor válido.');
-    if(!formaPagamento) return toast('Selecione a forma de recebimento.');
-
-    try{
-      RECEIVE_SAVE_LOCK = true;
-      const r = await registrarRecebimentoVale(clienteId, valor, formaPagamento);
-      toast(r.msg);
-      if(r.ok){
-        if($('#receb-cliente')) $('#receb-cliente').value = '';
-        if($('#receb-valor')) $('#receb-valor').value = '';
-        if($('#receb-forma')) $('#receb-forma').value = '';
-        await refreshFinanceiroUI();
-        await handleList('clientes');
-      }
-    } finally {
-      RECEIVE_SAVE_LOCK = false;
-    }
-  }, 'submitBound');
-
-
-  
-  $('#form-despesas')?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    if(COST_SAVE_LOCK) return false;
-
-    const grupo = String($('#despesa-grupo')?.value || '').trim();
-    const subcusto = String($('#despesa-subcusto')?.value || '').trim();
-    const valor = parseDecimalInput($('#despesa-valor')?.value || '');
-    const formaPagamento = String($('#despesa-pagamento')?.value || '').trim();
-
-    if(!grupo) { toast('Selecione o centro de custo.'); return false; }
-    if(!subcusto) { toast('Selecione o subcusto.'); return false; }
-    if(!Number.isFinite(valor) || valor <= 0) { toast('Informe um valor válido.'); return false; }
-    if(!formaPagamento) { toast('Selecione a forma de pagamento.'); return false; }
-
-    try{
-      COST_SAVE_LOCK = true;
-      const r = await registrarDespesa(grupo, subcusto, valor, formaPagamento);
-      toast(r.ok ? 'Salvo com sucesso.' : r.msg);
-      if(r.ok){
-        if($('#despesa-grupo')) $('#despesa-grupo').value = '';
-        await fillDespesaSubcustos('');
-        if($('#despesa-valor')) $('#despesa-valor').value = '';
-        if($('#despesa-pagamento')) $('#despesa-pagamento').value = '';
-        await refreshCustosUI();
-        await refreshFinanceiroUI();
-        openSection('view-custos');
-      }
-    } catch(err){
-      console.error(err);
-      toast('Erro ao salvar despesa.');
-    } finally {
-      COST_SAVE_LOCK = false;
-    }
-    return false;
-  });
-
-  $('#form-compras')?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    if(PURCHASE_SAVE_LOCK) return;
-    const insumoId = Number($('#compra-insumo')?.value || 0);
-    const qtd = parseDecimalInput($('#compra-qtd')?.value || '');
-    const total = parseDecimalInput($('#compra-total')?.value || '');
-
-    if(!insumoId) return toast('Selecione um insumo.');
-    if(!Number.isFinite(qtd) || qtd <= 0) return toast('Informe uma quantidade válida (> 0).');
-    if(!Number.isFinite(total) || total < 0) return toast('Informe um preço total válido.');
-
-    try{
-      PURCHASE_SAVE_LOCK = true;
-      const r = await registrarCompra(insumoId, qtd, total);
-      toast(r.msg);
-      if(r.ok){
-        if($('#compra-insumo')) $('#compra-insumo').value = '';
-        if($('#compra-qtd')) $('#compra-qtd').value = '';
-        if($('#compra-total')) $('#compra-total').value = '';
-        await refreshComprasUI();
-        await refreshEstoqueUI();
-        await handleList('insumos');
-      }
-    } finally {
-      PURCHASE_SAVE_LOCK = false;
-    }
-  });
-
-  bindOnce('#form-pagamento', 'submit', async (e)=>{
-    e.preventDefault();
-    await registrarPagamentoFuncionario();
-  }, 'submitBound');
-
-  bindOnce('#btn-relatorio-caixa', 'click', async (e)=>{
-    e.preventDefault();
-    await gerarRelatorioCaixa();
-  }, 'clickBound');
-}
-
-/* ---------- Funções auxiliares de venda/financeiro ---------- */
 async function registrarCompra(insumoId, qtdComprada, precoTotalPago){
   const ins = await getById('insumos', Number(insumoId));
   if(!ins) return {ok:false, msg:'Insumo não encontrado.'};
@@ -1464,6 +660,8 @@ async function registrarDespesa(grupo, subcusto, valor, formaPagamento){
   await addRecord('despesas', {data:Date.now(), grupo, subcusto, valor:Number(valor.toFixed(6)), formaPagamento});
   return {ok:true, msg:'Despesa registrada com sucesso.'};
 }
+
+
 
 /* ---------- Vendas / Financeiro ---------- */
 function vendasListFormatter(v){
@@ -1577,7 +775,6 @@ async function refreshVendasUI(){
   await updateVendaClienteInfo();
   updateVendaPreview();
   await listarVendas();
-  await refreshCartUI();
 }
 
 async function refreshFinanceiroUI(){
@@ -1638,6 +835,58 @@ async function refreshFinanceiroUI(){
 
   await fillRecebClientesSelect();
   await updateRecebClienteInfo();
+}
+
+async function registrarVenda(clienteId, produtoId, qtd, precoUnit, valorDinheiro, valorPix, valorVale){
+  const cliente = await getById('clientes', Number(clienteId));
+  if(!cliente) return {ok:false, msg:'Cliente não encontrado.'};
+  const produto = await getById('produtos', Number(produtoId));
+  if(!produto) return {ok:false, msg:'Produto não encontrado.'};
+
+  const saldoAtual = Number(produto.saldo || 0);
+  if(saldoAtual + 1e-9 < qtd){
+    return {ok:false, msg:`Saldo insuficiente para venda. Disponível: ${numBR(saldoAtual)} ${produto.unidade || 'un'}`};
+  }
+
+  const totalVenda = Number((qtd * precoUnit).toFixed(6));
+  const somaPagamentos = Number((valorDinheiro + valorPix + valorVale).toFixed(6));
+  if(Math.abs(totalVenda - somaPagamentos) > 0.009){
+    return {ok:false, msg:`Os pagamentos não fecham a venda. Total: R$ ${moneyBR(totalVenda)} | Informado: R$ ${moneyBR(somaPagamentos)}`};
+  }
+
+  const limite = Number(cliente.limiteCredito || 0);
+  const saldoDevedor = Number(cliente.saldoDevedor || 0);
+  if(valorVale > 0){
+    const novoSaldoDevedor = saldoDevedor + valorVale;
+    if(limite > 0 && novoSaldoDevedor - limite > 1e-9){
+      return {ok:false, msg:`Limite insuficiente! Disponível: R$ ${moneyBR(Math.max(0, limite - saldoDevedor))}`};
+    }
+    cliente.saldoDevedor = Number(novoSaldoDevedor.toFixed(6));
+    await putRecord('clientes', cliente);
+  }
+
+  produto.saldo = Number((saldoAtual - qtd).toFixed(6));
+  await putRecord('produtos', produto);
+
+  const formaResumo = (valorVale > 0 && (valorDinheiro > 0 || valorPix > 0)) ? 'Misto' : (valorVale > 0 ? 'Vale' : (valorPix > 0 && valorDinheiro > 0 ? 'Misto' : (valorPix > 0 ? 'Pix' : 'Dinheiro')));
+
+  await addRecord('vendas', {
+    data: Date.now(),
+    clienteId: cliente.id,
+    clienteNome: cliente.nome,
+    produtoId: produto.id,
+    produtoNome: produto.nome,
+    unidade: produto.unidade || 'un',
+    qtd: Number(qtd.toFixed(6)),
+    precoUnit: Number(precoUnit.toFixed(6)),
+    totalVenda,
+    valorDinheiro: Number(valorDinheiro.toFixed(6)),
+    valorPix: Number(valorPix.toFixed(6)),
+    valorVale: Number(valorVale.toFixed(6)),
+    formaPagamento: formaResumo
+  });
+
+  return {ok:true, msg:'Venda registrada com sucesso.'};
 }
 
 async function registrarRecebimentoVale(clienteId, valor, formaPagamento){
@@ -1904,6 +1153,588 @@ async function shareText(text){
   }
 }
 
+/* ---------- Estoque ---------- */
+async function refreshEstoqueUI(){
+  const box = document.getElementById('list-estoque');
+  if(!box) return;
+
+  const insumos = await listAll('insumos');
+  const produtos = await listAll('produtos');
+
+  insumos.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
+  produtos.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
+
+  const renderSaldo = (saldo) => {
+    const cls = Number(saldo) <= 0 ? 'saldo-alerta' : '';
+    return `<span class="${cls}">${escapeHtml(numBR(saldo || 0))}</span>`;
+  };
+
+  const insumosHtml = insumos.length ? insumos.map(i => `
+    <div class="item">
+      <div>
+        <div class="item__title">${escapeHtml(i.nome || '')}</div>
+        <div class="item__meta">Unid: ${escapeHtml(i.unidade || '')} • Custo Médio (Unit): R$ ${escapeHtml(moneyBR(i.custoUnit || 0))}</div>
+      </div>
+      <div class="item__right">Saldo: ${renderSaldo(i.saldo)}</div>
+    </div>
+  `).join('') : '<div class="muted">Nenhum insumo cadastrado.</div>';
+
+  const produtosHtml = produtos.length ? produtos.map(p => `
+    <div class="item">
+      <div>
+        <div class="item__title">${escapeHtml(p.nome || '')}</div>
+        <div class="item__meta">Unid: ${escapeHtml(p.unidade || '')} • Preço Venda: R$ ${escapeHtml(moneyBR(p.precoVenda || 0))}</div>
+      </div>
+      <div class="item__right">Saldo: ${renderSaldo(p.saldo)}</div>
+    </div>
+  `).join('') : '<div class="muted">Nenhum produto cadastrado.</div>';
+
+  box.innerHTML = `
+    <div class="estoque-bloco-title">Insumos</div>
+    ${insumosHtml}
+    <div class="estoque-bloco-title">Produtos Acabados</div>
+    ${produtosHtml}
+  `;
+}
+
+/* ---------- Event delegation ---------- */
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if(!(t instanceof HTMLElement)) return;
+
+  const prodEdit = t.closest('.js-prod-edit');
+  if(prodEdit){
+    e.preventDefault();
+    const id = Number(prodEdit.getAttribute('data-id') || 0);
+    if(!id) return;
+
+    openSection('cadastros');
+    setActiveTab('produtos');
+    await produtosLoadToForm(id);
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    const form = document.getElementById('form-produtos');
+    if(form) form.scrollIntoView({behavior:'smooth', block:'start'});
+    toast('Produto carregado para edição.');
+    return;
+  }
+
+  const prodDel = t.closest('.js-prod-del');
+  if(prodDel){
+    e.preventDefault();
+    const id = Number(prodDel.getAttribute('data-id') || 0);
+    if(!id) return;
+    await produtosDelete(id);
+    return;
+  }
+
+  const insEdit = t.closest('.js-ins-edit');
+  if(insEdit){
+    e.preventDefault();
+    const id = Number(insEdit.getAttribute('data-id') || 0);
+    if(!id) return;
+
+    openSection('cadastros');
+    setActiveTab('insumos');
+    await insumosLoadToForm(id);
+    window.scrollTo({top:0, behavior:'smooth'});
+    const form = document.getElementById('form-insumos');
+    if(form) form.scrollIntoView({behavior:'smooth', block:'start'});
+    toast('Insumo carregado para edição.');
+    return;
+  }
+
+  const insDel = t.closest('.js-ins-del');
+  if(insDel){
+    e.preventDefault();
+    const id = Number(insDel.getAttribute('data-id') || 0);
+    if(!id) return;
+    await insumosDelete(id);
+    return;
+  }
+
+  const cliEdit = t.closest('.js-cli-edit');
+  if(cliEdit){
+    e.preventDefault();
+    const id = Number(cliEdit.getAttribute('data-id') || 0);
+    if(!id) return;
+    openSection('cadastros');
+    setActiveTab('clientes');
+    await clientesLoadToForm(id);
+    window.scrollTo({top:0, behavior:'smooth'});
+    document.getElementById('form-clientes')?.scrollIntoView({behavior:'smooth', block:'start'});
+    toast('Cliente carregado para edição.');
+    return;
+  }
+
+  const saveLimite = t.closest('.js-save-limite');
+  if(saveLimite){
+    e.preventDefault();
+    const id = Number(saveLimite.getAttribute('data-id') || 0);
+    if(!id) return;
+    const input = document.querySelector(`.js-limite-input[data-id="${id}"]`);
+    const valor = Number(input?.value || 0);
+    if(!Number.isFinite(valor) || valor < 0) return toast('Informe um limite válido.');
+    const cliente = await getById('clientes', id);
+    if(!cliente) return toast('Cliente não encontrado.');
+    cliente.limiteCredito = Number(valor.toFixed(6));
+    if(!Number.isFinite(Number(cliente.saldoDevedor))) cliente.saldoDevedor = 0;
+    await putRecord('clientes', cliente);
+    await refreshLimitesUI();
+    await handleList('clientes');
+    await refreshVendasUI();
+    toast('Limite salvo com sucesso.');
+    return;
+  }
+
+  const centroEdit = t.closest('.js-centro-edit');
+  if(centroEdit){
+    e.preventDefault();
+    const id = Number(centroEdit.getAttribute('data-id') || 0);
+    if(!id) return;
+    const item = await getById('centrosCusto', id);
+    if(!item) return toast('Subcusto não encontrado.');
+    const novoSub = prompt('Editar nome do subcusto:', item.subcusto || '');
+    if(novoSub === null) return;
+    const novaObs = prompt('Editar observação:', item.observacao || '');
+    if(novaObs === null) return;
+    item.subcusto = String(novoSub || '').trim() || item.subcusto;
+    item.observacao = String(novaObs || '').trim();
+    await putRecord('centrosCusto', item);
+    await handleList('centrosCusto');
+    await refreshLimitesUI();
+    await refreshCustosUI();
+    await refreshFinanceiroUI();
+    toast('Subcusto atualizado.');
+    return;
+  }
+
+  const ftDel = t.closest('[data-action="remove-ft-item"]');
+  if(ftDel){
+    e.preventDefault();
+    const ix = Number(ftDel.getAttribute('data-ix') || -1);
+    if(ix >= 0){
+      FT_STATE.splice(ix, 1);
+      ftRender();
+    }
+    return;
+  }
+});
+
+/* ---------- Bindings ---------- */
+function bindNav(){
+  document.addEventListener('click', (e)=>{
+    const go = e.target?.dataset?.go;
+    if(go){ openSection(go); return; }
+    const listTarget = e.target?.dataset?.list;
+    if(listTarget) handleList(listTarget).catch(console.error);
+  });
+
+  $$('.tab').forEach(btn => btn.addEventListener('click', ()=>{
+    setActiveTab(btn.dataset.tab);
+  }));
+
+  $('#btn-resetui')?.addEventListener('click', ()=>{
+    const el = $('#toast');
+    if(el){ el.classList.remove('is-show'); el.textContent=''; }
+  });
+
+  $('#btn-testdb')?.addEventListener('click', async ()=>{
+    const c = await listAll('clientes');
+    toast(`IndexedDB OK. Clientes: ${c.length}`);
+  });
+
+  window.addEventListener('online', ()=>{
+    const b = $('#badge-offline');
+    if(b) b.textContent = 'Online';
+  });
+  window.addEventListener('offline', ()=>{
+    const b = $('#badge-offline');
+    if(b) b.textContent = 'Offline';
+  });
+
+  $('#producao-produto')?.addEventListener('change', ()=>updateFichaPreview().catch(console.error));
+  $('#btn-producao-precheck')?.addEventListener('click', async ()=>{
+    const produtoId = Number($('#producao-produto')?.value || 0);
+    const qtd = parseDecimalInput($('#producao-qtd')?.value || '');
+    if(!produtoId) return toast('Selecione um produto.');
+    if(!Number.isFinite(qtd) || qtd <= 0) return toast('Quantidade inválida.');
+    const chk = await precheckEstoque(produtoId, qtd);
+    toast(chk.msg);
+  });
+  $('#btn-listar-producoes')?.addEventListener('click', ()=>listarProducoes().catch(console.error));
+  $('#btn-share-producao')?.addEventListener('click', ()=>shareText(APP.lastProductionShareText));
+
+  $('#btn-listar-compras')?.addEventListener('click', ()=>listarCompras().catch(console.error));
+  $('#despesa-grupo')?.addEventListener('change', ()=>fillDespesaSubcustos($('#despesa-grupo')?.value || '').catch(console.error));
+  $('#btn-listar-despesas')?.addEventListener('click', ()=>listarDespesas().catch(console.error));
+  $('#btn-listar-insumos-estoque')?.addEventListener('click', async ()=>{
+    const box = document.getElementById('list-estoque');
+    if(!box) return;
+    const items = await listAll('insumos');
+    items.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
+    const renderSaldo = (saldo) => {
+      const cls = Number(saldo) <= 0 ? 'saldo-alerta' : '';
+      return `<span class="${cls}">${escapeHtml(numBR(saldo || 0))}</span>`;
+    };
+    box.innerHTML = '<div class="estoque-bloco-title">Insumos</div>' + (items.length ? items.map(i => `
+      <div class="item">
+        <div>
+          <div class="item__title">${escapeHtml(i.nome || '')}</div>
+          <div class="item__meta">Unid: ${escapeHtml(i.unidade || '')} • Custo Médio (Unit): R$ ${escapeHtml(moneyBR(i.custoUnit || 0))}</div>
+        </div>
+        <div class="item__right">Saldo: ${renderSaldo(i.saldo)}</div>
+      </div>
+    `).join('') : '<div class="muted">Nenhum insumo.</div>');
+  });
+  $('#btn-listar-produtos-estoque')?.addEventListener('click', async ()=>{
+    const box = document.getElementById('list-estoque');
+    if(!box) return;
+    const items = await listAll('produtos');
+    items.sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR'));
+    const renderSaldo = (saldo) => {
+      const cls = Number(saldo) <= 0 ? 'saldo-alerta' : '';
+      return `<span class="${cls}">${escapeHtml(numBR(saldo || 0))}</span>`;
+    };
+    box.innerHTML = '<div class="estoque-bloco-title">Produtos Acabados</div>' + (items.length ? items.map(p => `
+      <div class="item">
+        <div>
+          <div class="item__title">${escapeHtml(p.nome || '')}</div>
+          <div class="item__meta">Unid: ${escapeHtml(p.unidade || '')} • Preço Venda: R$ ${escapeHtml(moneyBR(p.precoVenda || 0))}</div>
+        </div>
+        <div class="item__right">Saldo: ${renderSaldo(p.saldo)}</div>
+      </div>
+    `).join('') : '<div class="muted">Nenhum produto.</div>');
+  });
+
+  $('#btn-produtos-novo')?.addEventListener('click', ()=>{
+    produtosResetForm();
+    clearToast();
+  });
+  $('#btn-produtos-listar')?.addEventListener('click', ()=>handleList('produtos').catch(console.error));
+  $('#btn-ft-add')?.addEventListener('click', ()=>ftAddRow().catch(console.error));
+  $('#btn-ft-clear')?.addEventListener('click', ()=>{
+    ftClear();
+    toast('Ficha limpa.');
+  });
+
+  document.getElementById('ft-itens')?.addEventListener('change', (e)=>{
+    if(!e.target?.matches('[data-ft-insumo]')) return;
+    const sel = e.target;
+    const ins = INSUMOS_CACHE.find(x=>String(x.id)===String(sel.value));
+    const unitInput = sel.closest('[data-ft-row]')?.querySelector('[data-ft-unit]');
+    if(unitInput && ins && !unitInput.value) unitInput.value = ins.unidade || '';
+  });
+}
+
+function clearToast(){
+  const el = $('#toast');
+  if(el){
+    el.classList.remove('is-show');
+    el.textContent = '';
+  }
+}
+
+/* ---------- Forms ---------- */
+function bindForms(){
+  $('#form-clientes')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const limiteCredito = parseDecimalInput(fd.get('limiteCredito') || '0');
+    const data = {
+      nome: String(fd.get('nome')||'').trim(),
+      telefone: String(fd.get('telefone')||'').trim(),
+      cidade: String(fd.get('cidade')||'').trim(),
+      limiteCredito: Number.isFinite(limiteCredito) ? limiteCredito : 0
+    };
+    if(!data.nome) return toast('Informe o nome do cliente.');
+
+    if(EDITING_CLIENTE_ID){
+      const current = await getById('clientes', EDITING_CLIENTE_ID);
+      if(!current) return toast('Cliente não encontrado para atualizar.');
+      await putRecord('clientes', {
+        ...current,
+        id: Number(EDITING_CLIENTE_ID),
+        nome: data.nome,
+        telefone: data.telefone,
+        cidade: data.cidade,
+        limiteCredito: data.limiteCredito,
+        saldoDevedor: Number(current.saldoDevedor || 0)
+      });
+      toast('Cliente atualizado.');
+    }else{
+      await addRecord('clientes', {
+        ...data,
+        saldoDevedor: 0,
+        createdAt: Date.now()
+      });
+      toast('Cliente salvo.');
+    }
+
+    clientesResetForm();
+    await handleList('clientes');
+    await refreshLimitesUI();
+    await refreshVendasUI();
+  });
+
+  $('#form-fornecedores')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = {
+      nome: String(fd.get('nome')||'').trim(),
+      contato: String(fd.get('contato')||'').trim(),
+      createdAt: Date.now()
+    };
+    if(!data.nome) return toast('Informe o nome do fornecedor.');
+    await addRecord('fornecedores', data);
+    e.target.reset();
+    await handleList('fornecedores');
+    toast('Fornecedor salvo.');
+  });
+
+  $('#form-funcionarios')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = {
+      nome: String(fd.get('nome')||'').trim(),
+      funcao: String(fd.get('funcao')||'').trim(),
+      createdAt: Date.now()
+    };
+    if(!data.nome) return toast('Informe o nome do funcionário.');
+    await addRecord('funcionarios', data);
+    e.target.reset();
+    await handleList('funcionarios');
+    toast('Funcionário salvo.');
+  });
+
+  $('#form-insumos')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const saldo = parseDecimalInput(fd.get('saldo') || '0');
+    const custo = parseDecimalInput(fd.get('custoUnit') || '0');
+    const data = {
+      nome: String(fd.get('nome')||'').trim(),
+      unidade: String(fd.get('unidade')||'').trim(),
+      saldo: Number.isFinite(saldo) ? saldo : 0,
+      custoUnit: Number.isFinite(custo) ? custo : 0
+    };
+    if(!data.nome || !data.unidade) return toast('Informe nome e unidade do insumo.');
+
+    if(EDITING_INSUMO_ID){
+      const current = await getById('insumos', EDITING_INSUMO_ID);
+      if(!current) return toast('Insumo não encontrado para atualizar.');
+      await putRecord('insumos', {...current, ...data, id: Number(EDITING_INSUMO_ID)});
+      toast('Insumo atualizado.');
+    }else{
+      await addRecord('insumos', {...data, createdAt: Date.now()});
+      toast('Insumo salvo.');
+    }
+
+    insumosResetForm();
+    await handleList('insumos');
+    await refreshComprasUI();
+    await refreshEstoqueUI();
+  });
+
+  $('#form-produtos')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const nome = String($('#produto-nome')?.value || '').trim();
+    const unidade = String($('#produto-unidade')?.value || '').trim();
+    const precoVenda = parseDecimalInput($('#produto-precoVenda')?.value || '0');
+    if(!nome || !unidade) return toast('Informe nome e unidade do produto.');
+
+    await loadInsumosCache();
+    const ficha = ftSyncFromUI();
+
+    const hiddenId = String(document.getElementById('produto-id')?.value || '').trim();
+    const id = EDITING_PRODUCT_ID ? String(EDITING_PRODUCT_ID) : hiddenId;
+
+    if(id){
+      const current = await getById('produtos', Number(id));
+      if(!current) return toast('Produto não encontrado para atualizar.');
+      await putRecord('produtos', {
+        ...current,
+        id: Number(id),
+        nome,
+        unidade,
+        precoVenda: Number.isFinite(precoVenda) ? precoVenda : 0,
+        fichaTecnica: ficha
+      });
+      toast('Produto atualizado.');
+    }else{
+      await addRecord('produtos', {
+        nome,
+        unidade,
+        precoVenda: Number.isFinite(precoVenda) ? precoVenda : 0,
+        saldo: 0,
+        fichaTecnica: ficha,
+        createdAt: Date.now()
+      });
+      toast('Produto salvo.');
+    }
+
+    produtosResetForm();
+    await handleList('produtos');
+    await refreshProdutosSelect();
+  });
+
+  $('#form-producao')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    await registrarProducao();
+  });
+
+  
+  
+  // Bindings únicos para evitar duplicidade
+  const bindOnce = (selector, eventName, handler, key='bound') => {
+    const el = $(selector);
+    if(!el || el.dataset[key]) return;
+    el.addEventListener(eventName, handler);
+    el.dataset[key] = '1';
+  };
+
+  bindOnce('#btn-centros-listar', 'click', ()=>handleList('centrosCusto').catch(console.error), 'clickBound');
+  bindOnce('#btn-listar-compras', 'click', ()=>listarCompras().catch(console.error), 'clickBound');
+  bindOnce('#btn-listar-despesas', 'click', ()=>listarDespesas().catch(console.error), 'clickBound');
+  bindOnce('#financeiro-centro-filtro', 'change', ()=>refreshFinanceiroUI().catch(console.error), 'changeBound');
+  
+  bindOnce('#btn-listar-vendas', 'click', ()=>listarVendas().catch(console.error), 'clickBound');
+  bindOnce('#btn-financeiro-atualizar', 'click', ()=>refreshFinanceiroUI().catch(console.error), 'clickBound');
+  bindOnce('#venda-cliente', 'change', ()=>updateVendaClienteInfo().catch(console.error), 'changeBound');
+  bindOnce('#receb-cliente', 'change', ()=>updateRecebClienteInfo().catch(console.error), 'changeBound');
+  bindOnce('#despesa-grupo', 'change', ()=>fillDespesaSubcustos($('#despesa-grupo')?.value || '').catch(console.error), 'changeBound');
+
+  ['#venda-qtd','#venda-preco','#venda-dinheiro','#venda-pix','#venda-vale'].forEach(sel => {
+    bindOnce(sel, 'input', ()=>updateVendaPreview(), 'inputBound');
+  });
+
+  bindOnce('#form-vendas', 'submit', async (e)=>{
+    e.preventDefault();
+    if(SALE_SAVE_LOCK) return;
+    const clienteId = Number($('#venda-cliente')?.value || 0);
+    const produtoId = Number($('#venda-produto')?.value || 0);
+    const qtd = parseDecimalInput($('#venda-qtd')?.value || '');
+    const precoUnit = parseDecimalInput($('#venda-preco')?.value || '');
+    const valorDinheiro = parseDecimalInput($('#venda-dinheiro')?.value || '0');
+    const valorPix = parseDecimalInput($('#venda-pix')?.value || '0');
+    const valorVale = parseDecimalInput($('#venda-vale')?.value || '0');
+
+    if(!clienteId) return toast('Selecione um cliente.');
+    if(!produtoId) return toast('Selecione um produto.');
+    if(!Number.isFinite(qtd) || qtd <= 0) return toast('Informe uma quantidade válida.');
+    if(!Number.isFinite(precoUnit) || precoUnit < 0) return toast('Informe um preço unitário válido.');
+    if(!Number.isFinite(valorDinheiro) || !Number.isFinite(valorPix) || !Number.isFinite(valorVale)) return toast('Informe valores de pagamento válidos.');
+
+    try{
+      SALE_SAVE_LOCK = true;
+      const r = await registrarVenda(clienteId, produtoId, qtd, precoUnit, Math.max(0, valorDinheiro), Math.max(0, valorPix), Math.max(0, valorVale));
+      toast(r.msg);
+      if(r.ok){
+        ['#venda-cliente','#venda-produto','#venda-qtd','#venda-preco','#venda-dinheiro','#venda-pix','#venda-vale'].forEach(sel => { if($(sel)) $(sel).value=''; });
+        updateVendaPreview();
+        await refreshVendasUI();
+        await refreshFinanceiroUI();
+        await refreshEstoqueUI();
+        await handleList('clientes');
+      }
+    } finally {
+      SALE_SAVE_LOCK = false;
+    }
+  }, 'submitBound');
+
+  bindOnce('#form-recebimento', 'submit', async (e)=>{
+    e.preventDefault();
+    if(RECEIVE_SAVE_LOCK) return;
+    const clienteId = Number($('#receb-cliente')?.value || 0);
+    const valor = parseDecimalInput($('#receb-valor')?.value || '');
+    const formaPagamento = String($('#receb-forma')?.value || '');
+    if(!clienteId) return toast('Selecione um cliente.');
+    if(!Number.isFinite(valor) || valor <= 0) return toast('Informe um valor válido.');
+    if(!formaPagamento) return toast('Selecione a forma de recebimento.');
+
+    try{
+      RECEIVE_SAVE_LOCK = true;
+      const r = await registrarRecebimentoVale(clienteId, valor, formaPagamento);
+      toast(r.msg);
+      if(r.ok){
+        if($('#receb-cliente')) $('#receb-cliente').value = '';
+        if($('#receb-valor')) $('#receb-valor').value = '';
+        if($('#receb-forma')) $('#receb-forma').value = '';
+        await refreshFinanceiroUI();
+        await handleList('clientes');
+      }
+    } finally {
+      RECEIVE_SAVE_LOCK = false;
+    }
+  }, 'submitBound');
+
+
+  
+  $('#form-despesas')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    if(COST_SAVE_LOCK) return false;
+
+    const grupo = String($('#despesa-grupo')?.value || '').trim();
+    const subcusto = String($('#despesa-subcusto')?.value || '').trim();
+    const valor = parseDecimalInput($('#despesa-valor')?.value || '');
+    const formaPagamento = String($('#despesa-pagamento')?.value || '').trim();
+
+    if(!grupo) { toast('Selecione o centro de custo.'); return false; }
+    if(!subcusto) { toast('Selecione o subcusto.'); return false; }
+    if(!Number.isFinite(valor) || valor <= 0) { toast('Informe um valor válido.'); return false; }
+    if(!formaPagamento) { toast('Selecione a forma de pagamento.'); return false; }
+
+    try{
+      COST_SAVE_LOCK = true;
+      const r = await registrarDespesa(grupo, subcusto, valor, formaPagamento);
+      toast(r.ok ? 'Salvo com sucesso.' : r.msg);
+      if(r.ok){
+        if($('#despesa-grupo')) $('#despesa-grupo').value = '';
+        await fillDespesaSubcustos('');
+        if($('#despesa-valor')) $('#despesa-valor').value = '';
+        if($('#despesa-pagamento')) $('#despesa-pagamento').value = '';
+        await refreshCustosUI();
+        await refreshFinanceiroUI();
+        openSection('view-custos');
+      }
+    } catch(err){
+      console.error(err);
+      toast('Erro ao salvar despesa.');
+    } finally {
+      COST_SAVE_LOCK = false;
+    }
+    return false;
+  });
+
+$('#form-compras')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    if(PURCHASE_SAVE_LOCK) return;
+    const insumoId = Number($('#compra-insumo')?.value || 0);
+    const qtd = parseDecimalInput($('#compra-qtd')?.value || '');
+    const total = parseDecimalInput($('#compra-total')?.value || '');
+
+    if(!insumoId) return toast('Selecione um insumo.');
+    if(!Number.isFinite(qtd) || qtd <= 0) return toast('Informe uma quantidade válida (> 0).');
+    if(!Number.isFinite(total) || total < 0) return toast('Informe um preço total válido.');
+
+    try{
+      PURCHASE_SAVE_LOCK = true;
+      const r = await registrarCompra(insumoId, qtd, total);
+      toast(r.msg);
+      if(r.ok){
+        if($('#compra-insumo')) $('#compra-insumo').value = '';
+        if($('#compra-qtd')) $('#compra-qtd').value = '';
+        if($('#compra-total')) $('#compra-total').value = '';
+        await refreshComprasUI();
+        await refreshEstoqueUI();
+        await handleList('insumos');
+      }
+    } finally {
+      PURCHASE_SAVE_LOCK = false;
+    }
+  });
+}
+
 /* ---------- Init ---------- */
 (async function init(){
   try{
@@ -1914,7 +1745,7 @@ async function shareText(text){
     if(badge) badge.textContent = navigator.onLine ? 'Online' : 'Offline';
 
     const status = $('#db-status');
-    if(status) status.textContent = `DB: OK (${DB_NAME} v${DB_VERSION}) • ${APP_VERSION}`;
+    if(status) status.textContent = `DB: OK (${DB_NAME} v${DB_VERSION})`;
 
     bindNav();
     bindForms();
@@ -1931,7 +1762,6 @@ async function shareText(text){
     await refreshVendasUI();
     await refreshFinanceiroUI();
     await refreshEstoqueUI();
-    await fillFuncionariosSelect();
 
     if('serviceWorker' in navigator){
       try{ await navigator.serviceWorker.register('./sw.js', {scope:'./'}); }catch(e){}
