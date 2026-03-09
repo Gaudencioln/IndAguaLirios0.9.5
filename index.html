@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b3d91" />
+  <meta name="description" content="Água Lírios - Produção e Vendas (offline-first)" />
+  <title>Água Lírios • Indústria (v0.9.5)</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand__mark" aria-hidden="true">💧</div>
+      <div class="brand__text">
+        <div class="brand__name">Água Lírios</div>
+        <div class="brand__sub">PWA • v0.9.5 • Offline-first</div>
+      </div>
+    </div>
+    <nav class="topnav" aria-label="Navegação">
+      <button class="navbtn" data-go="home">Home</button>
+      <button class="navbtn" data-go="cadastros">Cadastros</button>
+      <button class="navbtn" data-go="producao">Produção</button>
+      <button class="navbtn" data-go="compras">Compras</button>
+      <button class="navbtn" data-go="custos">Custos</button>
+      <button class="navbtn" data-go="vendas">Vendas</button>
+      <button class="navbtn" data-go="estoque">Estoque</button>
+      <button class="navbtn" data-go="financeiro">Financeiro</button>
+      <button class="navbtn" data-go="relatorios">Relatórios</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="view-home" class="view is-active" aria-labelledby="home-title">
+      <h1 id="home-title" class="h1">Menu Principal</h1>
+
+      <div class="gridCards" role="list">
+        <button class="card" role="listitem" data-go="vendas">
+          <div class="card__icon" aria-hidden="true">🧾</div>
+          <div class="card__title">Vendas</div>
+          <div class="card__desc">Carrinho multi-produtos</div>
+        </button>
+        <button class="card" role="listitem" data-go="estoque">
+          <div class="card__icon" aria-hidden="true">📦</div>
+          <div class="card__title">Estoque</div>
+          <div class="card__desc">Saldos e movimentações</div>
+        </button>
+        <button class="card" role="listitem" data-go="producao">
+          <div class="card__icon" aria-hidden="true">🏭</div>
+          <div class="card__title">Produção</div>
+          <div class="card__desc">Envase + baixa automática</div>
+        </button>
+        <button class="card" role="listitem" data-go="compras">
+          <div class="card__icon" aria-hidden="true">🛒</div>
+          <div class="card__title">Compras</div>
+          <div class="card__desc">Entrada de insumos</div>
+        </button>
+        <button class="card" role="listitem" data-go="custos">
+          <div class="card__icon" aria-hidden="true">🧮</div>
+          <div class="card__title">Custos</div>
+          <div class="card__desc">Despesas operacionais</div>
+        </button>
+        <button class="card" role="listitem" data-go="financeiro">
+          <div class="card__icon" aria-hidden="true">💰</div>
+          <div class="card__title">Financeiro</div>
+          <div class="card__desc">Caixa diário em tempo real</div>
+        </button>
+        <button class="card" role="listitem" data-go="relatorios">
+          <div class="card__icon" aria-hidden="true">📊</div>
+          <div class="card__title">Relatórios</div>
+          <div class="card__desc">Fechamento diário</div>
+        </button>
+        <button class="card" role="listitem" data-go="cadastros">
+          <div class="card__icon" aria-hidden="true">🗂️</div>
+          <div class="card__title">Cadastros</div>
+          <div class="card__desc">Clientes, Insumos, Produtos...</div>
+        </button>
+      </div>
+
+      <div class="panel">
+        <div class="panel__row">
+          <span class="badge" id="badge-offline">Checando...</span>
+          <span class="muted" id="db-status">DB: inicializando...</span>
+        </div>
+        <div class="panel__row">
+          <button class="btn" id="btn-testdb">Testar IndexedDB</button>
+          <button class="btn btn--ghost" id="btn-resetui">Limpar Toast</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-cadastros" class="view" aria-labelledby="cad-title">
+      <div class="viewhead">
+        <h1 id="cad-title" class="h1">Cadastros</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Tipos de Cadastro">
+        <button class="tab is-active" data-tab="clientes" role="tab" aria-selected="true">DADOS BÁSICOS</button>
+        <button class="tab" data-tab="limites" role="tab" aria-selected="false">GESTÃO DE LIMITES</button>
+        <button class="tab" data-tab="fornecedores" role="tab" aria-selected="false">Fornecedores</button>
+        <button class="tab" data-tab="funcionarios" role="tab" aria-selected="false">Funcionários</button>
+        <button class="tab" data-tab="insumos" role="tab" aria-selected="false">Insumos</button>
+        <button class="tab" data-tab="produtos" role="tab" aria-selected="false">Produtos</button>
+        <button class="tab" data-tab="centros" role="tab" aria-selected="false">Centros de Custo</button>
+      </div>
+
+      <div class="panel">
+        
+<form id="form-clientes" class="form is-active" data-form="clientes">
+          <h2 class="h2">Novo Cliente</h2>
+          <label class="field"><span class="field__label">Nome</span><input class="field__input" name="nome" required placeholder="Ex: Depósito do João" /></label>
+          <label class="field"><span class="field__label">Telefone</span><input class="field__input" name="telefone" inputmode="tel" placeholder="(88) 9xxxx-xxxx" /></label>
+          <label class="field"><span class="field__label">Cidade</span><input class="field__input" name="cidade" placeholder="Ex: Santana do Acaraú" /></label>
+          <label class="field"><span class="field__label">Limite de Crédito (R$)</span><input class="field__input" name="limiteCredito" inputmode="decimal" placeholder="Ex: 2000,00" /></label>
+          <div class="row"><button class="btn" type="submit" id="btn-salvar-cliente">Salvar</button><button class="btn btn--ghost" type="button" data-list="clientes">Listar</button></div>
+          <div class="list" id="list-clientes" aria-live="polite"></div>
+        </form>
+        <div id="form-limites" class="form" data-form="limites">
+          <h2 class="h2" style="margin-top:12px">Gestão de Limites</h2>
+          <div class="muted">Visualização rápida do crédito por cliente.</div>
+          <div class="limits-table-wrap">
+            <table class="limits-table">
+              <thead><tr><th>Nome</th><th>Saldo Devedor</th><th>Crédito Disponível</th><th>Limite Atual</th><th>Ação</th></tr></thead>
+              <tbody id="list-limites"></tbody>
+            </table>
+          </div>
+        </div>
+        <form id="form-limites" class="form" data-form="limites">
+          <h2 class="h2" style="margin-top:12px">Limites de Crédito</h2>
+          <div class="muted">Defina o limite de cada cliente e acompanhe saldo devedor e crédito disponível.</div>
+          <div class="list" id="list-limites" aria-live="polite"></div>
+        </form>
+
+        <form id="form-fornecedores" class="form" data-form="fornecedores">
+          <h2 class="h2">Novo Fornecedor</h2>
+          <label class="field"><span class="field__label">Nome</span><input class="field__input" name="nome" required placeholder="Ex: Fornecedor de Tampas" /></label>
+          <label class="field"><span class="field__label">Contato</span><input class="field__input" name="contato" placeholder="Pessoa / telefone" /></label>
+          <div class="row"><button class="btn" type="submit">Salvar</button><button class="btn btn--ghost" type="button" data-list="fornecedores">Listar</button></div>
+          <div class="list" id="list-fornecedores" aria-live="polite"></div>
+        </form>
+
+        <form id="form-funcionarios" class="form" data-form="funcionarios">
+          <h2 class="h2">Novo Funcionário</h2>
+          <label class="field"><span class="field__label">Nome</span><input class="field__input" name="nome" required placeholder="Ex: Samuel" /></label>
+          <label class="field"><span class="field__label">Função</span><input class="field__input" name="funcao" placeholder="Ex: Financeiro" /></label>
+          <div class="row"><button class="btn" type="submit">Salvar</button><button class="btn btn--ghost" type="button" data-list="funcionarios">Listar</button></div>
+          <div class="list" id="list-funcionarios" aria-live="polite"></div>
+        </form>
+
+        <form id="form-insumos" class="form" data-form="insumos">
+          <h2 class="h2">Novo Insumo (Matéria-Prima)</h2>
+          <label class="field"><span class="field__label">Nome</span><input class="field__input" name="nome" required placeholder="Ex: Tampa" /></label>
+          <label class="field"><span class="field__label">Unidade</span><input class="field__input" name="unidade" required placeholder="Ex: un, kg, g, L" /></label>
+          <label class="field"><span class="field__label">Saldo Inicial</span><input class="field__input" name="saldo" inputmode="decimal" placeholder="0" /></label>
+          <label class="field"><span class="field__label">Custo Unitário Atual (opcional)</span><input class="field__input" name="custoUnit" inputmode="decimal" placeholder="0,00" /></label>
+          <div class="row"><button class="btn" type="submit">Salvar</button><button class="btn btn--ghost" type="button" data-list="insumos">Listar</button></div>
+          <div class="list" id="list-insumos" aria-live="polite"></div>
+        </form>
+
+        <form id="form-produtos" class="form" data-form="produtos">
+          <div class="panel mini" style="margin-top:0">
+            <div class="panel__row" style="margin-bottom:0">
+              <div class="muted"><b>Modo:</b> <span id="produtos-modo">Novo</span></div>
+              <button class="btn btn--ghost" type="button" id="btn-produtos-novo">+ Novo Produto</button>
+            </div>
+          </div>
+
+          <h2 class="h2" style="margin-top:12px">Produtos Finais (CRUD + Ficha Técnica)</h2>
+
+          <input type="hidden" id="produto-id" value=""/>
+
+          <label class="field">
+            <span class="field__label">Nome</span>
+            <input class="field__input" id="produto-nome" required placeholder="Ex: Água Lírios 550ml s/gás (12un)" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">Unidade</span>
+            <input class="field__input" id="produto-unidade" required placeholder="Ex: fardo, cx, un" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">Preço de Venda (R$)</span>
+            <input class="field__input" id="produto-precoVenda" inputmode="decimal" placeholder="Ex: 22,00" />
+          </label>
+
+          <div class="panel mini">
+            <div class="panel__row">
+              <div>
+                <div class="item__title">Montar Ficha Técnica (Receita)</div>
+                <div class="item__meta">Defina o consumo de insumos por <b>1 unidade</b> do produto.</div>
+              </div>
+              <button class="btn" type="button" id="btn-ft-add">+ Adicionar Insumo</button>
+            </div>
+
+            <div id="ft-itens" class="list" aria-live="polite"></div>
+          </div>
+
+          <div class="row">
+            <button class="btn" type="submit">Salvar Produto</button>
+          </div>
+        </form>
+
+        <div id="form-centros" class="form" data-form="centros">
+          <h2 class="h2">Centros de Custo (Gerenciar)</h2>
+          <div class="muted">Clique em "Editar" para alterar nome ou observação do subcusto.</div>
+          <div class="list" id="list-centros" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-producao" class="view" aria-labelledby="prod-title">
+      <div class="viewhead">
+        <h1 id="prod-title" class="h1">Produção</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Registrar Produção</h2>
+        <form id="form-producao" class="form is-active" data-form="producao">
+          <label class="field"><span class="field__label">Produto Acabado</span><select class="field__input" id="producao-produto" required><option value="">Carregando produtos...</option></select></label>
+          <label class="field"><span class="field__label">Quantidade Produzida</span><input class="field__input" id="producao-qtd" inputmode="decimal" placeholder="Ex: 10" required /></label>
+          <div class="panel" style="margin:8px 0">
+            <h2 class="h2" style="margin:0 0 8px 0">Ficha Técnica do Produto</h2>
+            <div class="list" id="producao-ficha" aria-live="polite"></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn" type="submit">Registrar Produção</button>
+            <button class="btn is-hidden" type="button" id="btn-share-producao">Compartilhar Resumo</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel__row">
+          <h2 class="h2" style="margin:0">Últimas Produções</h2>
+          <button class="btn btn--ghost" type="button" id="btn-listar-producoes">Atualizar</button>
+        </div>
+        <div class="list" id="list-producoes" aria-live="polite"></div>
+      </div>
+    </section>
+
+    
+    
+    <section id="view-compras" class="view" aria-labelledby="compras-title">
+      <div class="viewhead">
+        <h1 id="compras-title" class="h1">Compras (Entrada)</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Entrada de Insumos</h2>
+        <form id="form-compras" class="form is-active" data-form="compras">
+          <label class="field"><span class="field__label">Insumo</span>
+            <select class="field__input" id="compra-insumo" required><option value="">Carregando insumos...</option></select>
+          </label>
+          <label class="field"><span class="field__label">Quantidade Comprada</span>
+            <input class="field__input" id="compra-qtd" inputmode="decimal" placeholder="Ex: 10" required />
+          </label>
+          <label class="field"><span class="field__label">Preço Total Pago (R$)</span>
+            <input class="field__input" id="compra-total" inputmode="decimal" placeholder="Ex: 120,00" required />
+          </label>
+          <div class="row">
+            <button class="btn" type="submit">Registrar Compra</button>
+            <button class="btn btn--ghost" type="button" id="btn-listar-compras">Listar Compras</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel__row"><h2 class="h2" style="margin:0">Últimas Compras</h2></div>
+        <div class="list" id="list-compras" aria-live="polite"></div>
+      </div>
+    </section>
+
+
+
+    
+    
+    
+    <section id="view-vendas" class="view" aria-labelledby="vendas-title">
+      <div class="viewhead">
+        <h1 id="vendas-title" class="h1">Vendas (Carrinho)</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Adicionar Itens ao Carrinho</h2>
+        <form id="form-vendas" class="form is-active" data-form="vendas">
+          <label class="field"><span class="field__label">Cliente</span><select class="field__input" id="venda-cliente" required><option value="">Carregando clientes...</option></select></label>
+          <label class="field"><span class="field__label">Produto Acabado</span><select class="field__input" id="venda-produto" required><option value="">Carregando produtos...</option></select></label>
+          <label class="field"><span class="field__label">Quantidade Vendida</span><input class="field__input" id="venda-qtd" inputmode="decimal" placeholder="Ex: 10" required /></label>
+          <label class="field"><span class="field__label">Preço Unitário (R$)</span><input class="field__input" id="venda-preco" inputmode="decimal" placeholder="Ex: 22,00" required /></label>
+          <div id="venda-cliente-financeiro" class="muted">Selecione um cliente para ver crédito e saldo devedor.</div>
+          <div id="venda-total-previa" class="muted">Total do item: R$ 0,00</div>
+          <div class="row">
+            <button class="btn" type="button" id="btn-adicionar-carrinho">+ Adicionar ao Carrinho</button>
+            <button class="btn btn--ghost" type="button" id="btn-listar-vendas">Histórico</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h2 class="h2">Carrinho de Compras</h2>
+        <div class="list" id="cart-items" aria-live="polite"></div>
+        <div id="cart-total" class="muted" style="margin-top:12px"></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="h2">Finalizar Venda</h2>
+        <form id="form-pagamentos" class="form is-active">
+          <div class="panel" style="margin:8px 0">
+            <h2 class="h2" style="margin:0 0 8px 0">Formas de Pagamento</h2>
+            <label class="field"><span class="field__label">Valor em Dinheiro</span><input class="field__input" id="venda-dinheiro" inputmode="decimal" placeholder="0,00" /></label>
+            <label class="field"><span class="field__label">Valor em Pix</span><input class="field__input" id="venda-pix" inputmode="decimal" placeholder="0,00" /></label>
+            <label class="field"><span class="field__label">Valor no Vale</span><input class="field__input" id="venda-vale" inputmode="decimal" placeholder="0,00" /></label>
+          </div>
+          <div class="row">
+            <button class="btn" type="submit" id="btn-finalizar-venda">Finalizar Venda</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel__row"><h2 class="h2" style="margin:0">Últimas Vendas</h2></div>
+        <div class="list" id="list-vendas" aria-live="polite"></div>
+      </div>
+    </section>
+
+
+
+
+    <section id="view-estoque" class="view" aria-labelledby="estoque-title">
+      <div class="viewhead">
+        <h1 id="estoque-title" class="h1">Estoque</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <div class="muted">Listagem rápida (Insumos mostra Saldo e <b>Custo Unitário Médio</b>).</div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" type="button" id="btn-listar-insumos-estoque">Listar Insumos</button>
+          <button class="btn" type="button" id="btn-listar-produtos-estoque">Listar Produtos</button>
+        </div>
+        <div class="list" id="list-estoque" aria-live="polite"></div>
+      </div>
+    </section>
+
+    
+    
+    <section id="view-custos" class="view" aria-labelledby="custos-title">
+      <div class="viewhead">
+        <h1 id="custos-title" class="h1">Custos</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Despesa Operacional</h2>
+        <form id="form-despesas" class="form is-active" data-form="despesas">
+          <label class="field"><span class="field__label">Centro de Custo</span><select class="field__input" id="despesa-grupo" required><option value="">Carregando centros...</option></select></label>
+          <label class="field"><span class="field__label">Subcusto</span><select class="field__input" id="despesa-subcusto" required><option value="">Selecione o grupo primeiro...</option></select></label>
+          <label class="field"><span class="field__label">Valor (R$)</span><input class="field__input" id="despesa-valor" inputmode="decimal" placeholder="Ex: 350,00" required /></label>
+          <label class="field"><span class="field__label">Forma de Pagamento</span>
+            <select class="field__input" id="despesa-pagamento" required>
+              <option value="">Selecione...</option><option value="Dinheiro">Dinheiro</option><option value="Pix">Pix</option><option value="Vale">Vale</option>
+            </select>
+          </label>
+          <div class="row">
+            <button class="btn" type="submit">Registrar Despesa</button>
+            <button class="btn btn--ghost" type="button" id="btn-listar-despesas">Listar Despesas</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel__row"><h2 class="h2" style="margin:0">Gerenciar Subcustos</h2></div>
+        <div class="muted">Use o botão Editar para ajustar nome do subcusto ou observação.</div>
+        <div class="list" id="list-custos-itens" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <div class="panel__row"><h2 class="h2" style="margin:0">Últimas Despesas</h2></div>
+        <div class="list" id="list-despesas" aria-live="polite"></div>
+      </div>
+    </section>
+
+    
+    <section id="view-financeiro" class="view" aria-labelledby="fin-title">
+      <div class="viewhead">
+        <h1 id="fin-title" class="h1">Financeiro (Caixa Diário)</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+
+      <div class="panel">
+        <h2 class="h2">Pagar Funcionário</h2>
+        <form id="form-pagamento" class="form is-active">
+          <label class="field"><span class="field__label">Funcionário</span><select class="field__input" id="pagamento-funcionario" required><option value="">Carregando funcionários...</option></select></label>
+          <label class="field"><span class="field__label">Valor (R$)</span><input class="field__input" id="pagamento-valor" inputmode="decimal" placeholder="Ex: 1000,00" required /></label>
+          <label class="field"><span class="field__label">Descrição</span><input class="field__input" id="pagamento-descricao" placeholder="Ex: Salário, Vale, Extra" /></label>
+          <label class="field"><span class="field__label">Forma de Pagamento</span>
+            <select class="field__input" id="pagamento-forma" required>
+              <option value="">Selecione...</option><option value="Dinheiro">Dinheiro</option><option value="Pix">Pix</option><option value="Vale">Vale</option>
+            </select>
+          </label>
+          <div class="row">
+            <button class="btn" type="submit">Registrar Pagamento</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <h2 class="h2">Resumo de Recebimentos</h2>
+        <div class="list" id="financeiro-resumo" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Receber Pagamento de Vale</h2>
+        <form id="form-recebimento" class="form is-active">
+          <label class="field"><span class="field__label">Cliente</span><select class="field__input" id="receb-cliente" required><option value="">Carregando clientes...</option></select></label>
+          <div id="receb-cliente-info" class="muted">Selecione um cliente para visualizar o saldo devedor.</div>
+          <label class="field"><span class="field__label">Valor Pago</span><input class="field__input" id="receb-valor" inputmode="decimal" placeholder="Ex: 50,00" required /></label>
+          <label class="field"><span class="field__label">Forma de Recebimento</span>
+            <select class="field__input" id="receb-forma" required>
+              <option value="">Selecione...</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Pix">Pix</option>
+            </select>
+          </label>
+          <div class="row">
+            <button class="btn" type="submit">Receber Vale</button>
+            <button class="btn btn--ghost" type="button" id="btn-financeiro-atualizar">Atualizar</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Filtro de Gastos por Centro de Custo</h2>
+        <label class="field"><span class="field__label">Centro de Custo</span><select class="field__input" id="financeiro-centro-filtro"><option value="">Todos</option></select></label>
+        <div class="list" id="financeiro-despesas-resumo" aria-live="polite"></div>
+      </div>
+      <div class="panel">
+        <div class="panel__row"><h2 class="h2" style="margin:0">Histórico Financeiro</h2></div>
+        <div class="list" id="financeiro-vendas" aria-live="polite"></div>
+      </div>
+    </section>
+
+
+
+
+    <section id="view-relatorios" class="view" aria-labelledby="rel-title">
+      <div class="viewhead">
+        <h1 id="rel-title" class="h1">Relatórios</h1>
+        <button class="btn btn--ghost" data-go="home">← Voltar</button>
+      </div>
+      <div class="panel">
+        <h2 class="h2">Fechamento de Caixa Diário</h2>
+        <div class="row">
+          <button class="btn" type="button" id="btn-relatorio-caixa">Gerar Relatório de Hoje</button>
+        </div>
+      </div>
+      <div id="relatorio-caixa" aria-live="polite"></div>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
